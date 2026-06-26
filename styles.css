@@ -210,6 +210,41 @@
       color: #eafff3;
     }
 
+    .time-input-row {
+      display: grid;
+      grid-template-columns: auto minmax(92px, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .time-input-row input {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid rgba(154, 185, 255, 0.28);
+      border-radius: 8px;
+      background: rgba(3, 8, 17, 0.5);
+      color: var(--text);
+      font: inherit;
+      font-size: 16px;
+      padding: 0 10px;
+      outline: none;
+    }
+
+    .time-input-row input:focus {
+      border-color: rgba(65, 215, 255, 0.72);
+      box-shadow: 0 0 0 3px rgba(65, 215, 255, 0.14);
+    }
+
+    .time-hint {
+      margin-top: 6px;
+      color: rgba(158, 178, 209, 0.82);
+      font-size: 12px;
+    }
+
     .actions {
       display: flex;
       flex-wrap: wrap;
@@ -335,6 +370,11 @@
       .choice-row,
       .choice-row.two {
         grid-template-columns: 1fr;
+      }
+
+      .time-input-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
       }
     }
   
