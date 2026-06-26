@@ -5,6 +5,61 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>星际空袭</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    @media (hover: none), (pointer: coarse), (max-height: 560px) {
+      .overlay {
+        padding-bottom: max(112px, env(safe-area-inset-bottom));
+      }
+
+      .dialog {
+        padding-bottom: max(104px, env(safe-area-inset-bottom));
+      }
+
+      .overlay:not(.hidden) .actions {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 20;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 180px));
+        justify-content: center;
+        padding: 8px;
+        border: 1px solid rgba(154, 185, 255, 0.3);
+        border-radius: 8px;
+        background: rgba(8, 16, 30, 0.94);
+        box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(14px);
+      }
+
+      .overlay:not(.hidden) .actions button {
+        min-height: 46px;
+        font-weight: 800;
+      }
+    }
+
+    @media (max-height: 560px) {
+      .game {
+        padding: 0;
+      }
+
+      .stage {
+        width: 100vw;
+        height: 100dvh;
+        min-height: 0;
+        border: 0;
+        border-radius: 0;
+      }
+
+      .overlay {
+        place-items: start center;
+        padding:
+          max(8px, env(safe-area-inset-top))
+          8px
+          max(106px, env(safe-area-inset-bottom));
+      }
+    }
+  </style>
 </head>
 <body>
   <main class="game" aria-label="星际空袭游戏">
