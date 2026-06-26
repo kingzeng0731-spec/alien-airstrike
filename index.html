@@ -47,7 +47,7 @@
       <div class="overlay" id="overlay">
         <div class="dialog">
           <h1 id="title">星际空袭</h1>
-          <p id="message">方向键或 WASD 移动。升级模式不限时可无限成长，怪物每 30 秒变强。</p>
+          <p id="message">方向键或 WASD 移动。可选择不限时，或输入自定义限时时间。</p>
           <div class="settings" id="settings">
             <div class="setting">
               <div class="setting-name">玩法</div>
@@ -60,7 +60,15 @@
               <div class="setting-name">时间</div>
               <div class="choice-row two">
                 <button class="choice" data-option="timed" data-value="false" aria-pressed="true">不限时</button>
-                <button class="choice" data-option="timed" data-value="true" aria-pressed="false">限时 90 秒</button>
+                <button class="choice" data-option="timed" data-value="true" aria-pressed="false">自定义限时</button>
+              </div>
+              <label class="time-input-row" for="timeLimit">
+                <span>限时秒数</span>
+                <input id="timeLimit" type="number" inputmode="numeric" min="10" max="3600" step="10" value="90">
+                <span>秒</span>
+              </label>
+              <div class="time-hint">
+                可输入 10 到 3600 秒。
               </div>
             </div>
             <div class="setting">
