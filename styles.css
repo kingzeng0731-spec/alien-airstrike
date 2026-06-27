@@ -74,16 +74,14 @@
       width: 100%;
       height: 100%;
       image-rendering: auto;
+      touch-action: none;
     }
 
     .hud {
       position: absolute;
       top: 12px;
       left: 12px;
-      right: 12px;
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 8px;
+      display: block;
       pointer-events: none;
     }
 
@@ -96,22 +94,61 @@
       backdrop-filter: blur(12px);
     }
 
+    .score-stat {
+      width: 94px;
+      padding: 6px 8px;
+    }
+
     .label {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 10px;
       line-height: 1.1;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
       white-space: nowrap;
     }
 
     .value {
-      font-size: clamp(16px, 2vw, 24px);
+      font-size: 17px;
       font-weight: 800;
       line-height: 1;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .hud-timer {
+      margin-top: 3px;
+      color: rgba(238, 245, 255, 0.76);
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .wave-notice {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      min-width: 112px;
+      transform: translateX(-50%);
+      border: 1px solid rgba(255, 207, 91, 0.36);
+      border-radius: 8px;
+      background: rgba(10, 18, 34, 0.68);
+      color: #ffe8a0;
+      padding: 6px 10px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 900;
+      line-height: 1.1;
+      pointer-events: none;
+      backdrop-filter: blur(12px);
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .wave-notice.hidden {
+      opacity: 0;
+      transform: translate(-50%, -6px);
     }
 
     .value.good {
@@ -315,6 +352,166 @@
     @media (hover: none), (pointer: coarse) {
       .touch-controls {
         display: grid;
+        left: auto;
+        right: max(12px, env(safe-area-inset-right));
+        bottom: max(12px, env(safe-area-inset-bottom));
+        grid-template-columns: auto;
+      }
+
+      .pad {
+        display: none;
+      }
+
+      .fire {
+        width: 58px;
+        height: 58px;
+        font-size: 13px;
+      }
+
+      .overlay {
+        padding-bottom: max(112px, env(safe-area-inset-bottom));
+      }
+
+      .dialog {
+        padding-bottom: max(104px, env(safe-area-inset-bottom));
+      }
+
+      .overlay:not(.hidden) .actions {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 20;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 180px));
+        justify-content: center;
+        padding: 8px;
+        border: 1px solid rgba(154, 185, 255, 0.3);
+        border-radius: 8px;
+        background: rgba(8, 16, 30, 0.94);
+        box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(14px);
+      }
+
+      .overlay:not(.hidden) .actions button {
+        min-height: 46px;
+        font-weight: 800;
+      }
+    }
+
+    @media (max-height: 560px) {
+      .game {
+        padding: 0;
+      }
+
+      .stage {
+        width: 100vw;
+        height: 100dvh;
+        min-height: 0;
+        border: 0;
+        border-radius: 0;
+      }
+
+      .hud {
+        top: 8px;
+        left: 8px;
+      }
+
+      .score-stat {
+        width: 82px;
+        padding: 5px 7px;
+      }
+
+      .label {
+        font-size: 10px;
+      }
+
+      .value {
+        font-size: 15px;
+      }
+
+      .hud-timer {
+        font-size: 9px;
+      }
+
+      .wave-notice {
+        top: 8px;
+        min-width: 98px;
+        padding: 5px 8px;
+        font-size: 11px;
+      }
+
+      .overlay {
+        place-items: start center;
+        padding:
+          max(8px, env(safe-area-inset-top))
+          8px
+          max(106px, env(safe-area-inset-bottom));
+      }
+
+      .dialog {
+        width: min(760px, calc(100vw - 16px));
+        max-height: none;
+        padding: 10px 12px max(96px, env(safe-area-inset-bottom));
+      }
+
+      .dialog h1 {
+        font-size: 30px;
+        margin-bottom: 6px;
+      }
+
+      .dialog p {
+        margin-bottom: 8px;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .settings {
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .setting {
+        padding: 8px;
+      }
+
+      .setting-name {
+        margin-bottom: 6px;
+      }
+
+      .choice {
+        min-height: 36px;
+        padding: 6px 8px;
+      }
+
+      .time-input-row {
+        margin-top: 7px;
+      }
+
+      .time-input-row input {
+        min-height: 36px;
+      }
+
+      .overlay:not(.hidden) .actions {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        z-index: 20;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 180px));
+        justify-content: center;
+        padding: 8px;
+        border: 1px solid rgba(154, 185, 255, 0.3);
+        border-radius: 8px;
+        background: rgba(8, 16, 30, 0.94);
+        box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(14px);
+      }
+
+      .overlay:not(.hidden) .actions button {
+        min-height: 46px;
+        font-weight: 800;
       }
 
       .overlay {
@@ -463,8 +660,27 @@
         border-radius: 0;
       }
 
+      .touch-controls {
+        display: grid;
+        left: auto;
+        right: max(12px, env(safe-area-inset-right));
+        bottom: max(12px, env(safe-area-inset-bottom));
+        grid-template-columns: auto;
+      }
+
+      .pad {
+        display: none;
+      }
+
+      .fire {
+        width: 58px;
+        height: 58px;
+        font-size: 13px;
+      }
+
       .hud {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        top: max(8px, env(safe-area-inset-top));
+        left: max(8px, env(safe-area-inset-left));
       }
 
       .overlay {
@@ -495,12 +711,26 @@
         margin-bottom: 14px;
       }
 
-      .stat {
-        padding: 7px 9px;
+      .score-stat {
+        width: 78px;
+        padding: 5px 7px;
       }
 
       .label {
-        font-size: 11px;
+        font-size: 9px;
+      }
+
+      .value {
+        font-size: 14px;
+      }
+
+      .wave-notice {
+        top: max(8px, env(safe-area-inset-top));
+        max-width: calc(100vw - 188px);
+        min-width: 92px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .choice-row,

@@ -6,11 +6,8 @@
 const canvas = document.querySelector("#game");
     const ctx = canvas.getContext("2d");
     const scoreEl = document.querySelector("#score");
-    const livesEl = document.querySelector("#lives");
-    const waveEl = document.querySelector("#wave");
-    const chargeEl = document.querySelector("#charge");
-    const specialLabelEl = document.querySelector("#specialLabel");
     const timerEl = document.querySelector("#timer");
+    const waveNoticeEl = document.querySelector("#waveNotice");
     const overlay = document.querySelector("#overlay");
     const titleEl = document.querySelector("#title");
     const messageEl = document.querySelector("#message");
@@ -44,6 +41,17 @@ const canvas = document.querySelector("#game");
     let timeRemaining = 0;
     let elapsedTime = 0;
     let monsterLevel = 1;
+    let bossSpawnedForWave = 0;
+    let waveNoticeTimer = 2.4;
+    let waveNoticeText = "第 1 波";
+
+    const waveDuration = 24;
+    const dragControl = {
+      active: false,
+      pointerId: null,
+      targetX: 520,
+      targetY: 640
+    };
 
     // 玩家在开始界面选择的设置。
     const settings = {
@@ -93,6 +101,7 @@ const canvas = document.querySelector("#game");
       radius: 22,
       speed: 410,
       lives: 3,
+      maxLives: 3,
       cooldown: 0,
       charge: 1,
       fireLevel: 1,
@@ -192,6 +201,9 @@ const canvas = document.querySelector("#game");
       score = 0;
       wave = 1;
       monsterLevel = 1;
+      bossSpawnedForWave = 0;
+      waveNoticeTimer = 2.4;
+      waveNoticeText = "第 1 波";
       spawnTimer = 0;
       timeRemaining = settings.timed ? settings.timeLimit : 0;
       elapsedTime = 0;
@@ -203,11 +215,15 @@ const canvas = document.querySelector("#game");
       player.x = canvas.clientWidth / 2;
       player.y = canvas.clientHeight - 92;
       player.lives = difficulty.lives;
+      player.maxLives = difficulty.lives;
       player.cooldown = 0;
       player.charge = 1;
       player.fireLevel = 1;
       player.nextUpgrade = settings.difficulty === "hard" ? 220 : settings.difficulty === "easy" ? 150 : 180;
       player.invulnerable = 1.6;
+      dragControl.active = false;
+      dragControl.targetX = player.x;
+      dragControl.targetY = player.y;
       running = true;
       paused = false;
       settingsEl.hidden = true;
@@ -242,14 +258,21 @@ const canvas = document.querySelector("#game");
       }
     }
 
-    // 更新顶部 HUD，也就是分数、生命、波次、能量/火力、时间这些文字。
+    // 更新左上角分数/时间，以及顶部中间的波次倒计时提示。
     function updateHud() {
       scoreEl.textContent = String(score);
-      livesEl.textContent = String(player.lives);
-      waveEl.textContent = `${wave}/${monsterLevel}`;
-      specialLabelEl.textContent = settings.mode === "energy" ? "能量" : "火力";
-      chargeEl.textContent = settings.mode === "energy" ? `${Math.round(player.charge * 100)}%` : `Lv.${player.fireLevel}`;
       timerEl.textContent = settings.timed ? `${Math.max(0, Math.ceil(timeRemaining))}s` : formatClock(elapsedTime);
+      const nextWaveIn = Math.max(0, wave * waveDuration - elapsedTime);
+      if (waveNoticeTimer > 0) {
+        waveNoticeEl.textContent = waveNoticeText;
+        waveNoticeEl.classList.remove("hidden");
+      } else if (nextWaveIn <= 8) {
+        waveNoticeEl.textContent = `第 ${wave + 1} 波马上来 ${Math.ceil(nextWaveIn)}s`;
+        waveNoticeEl.classList.remove("hidden");
+      } else {
+        waveNoticeEl.textContent = `第 ${wave + 1} 波 ${Math.ceil(nextWaveIn)}s`;
+        waveNoticeEl.classList.remove("hidden");
+      }
     }
 
     // 把秒数格式化成 分:秒，比如 75 秒变成 1:15。
@@ -282,6 +305,25 @@ const canvas = document.querySelector("#game");
       playTone(140, 0.18, "sawtooth", 0.05);
     }
 
+    function updateWaveProgress(dt) {
+      const nextWave = 1 + Math.floor(elapsedTime / waveDuration);
+      if (nextWave <= wave) {
+        waveNoticeTimer = Math.max(0, waveNoticeTimer - dt);
+        return;
+      }
+
+      wave = nextWave;
+      waveNoticeTimer = 2.8;
+      waveNoticeText = wave % 5 === 0 ? `第 ${wave} 波 BOSS` : `第 ${wave} 波`;
+      spawnTimer = Math.min(spawnTimer, 0.12);
+      makeSparks(canvas.clientWidth / 2, 78, wave % 5 === 0 ? "#ff5d7d" : "#ffcf5b", wave % 5 === 0 ? 46 : 28);
+      playTone(wave % 5 === 0 ? 90 : 160, 0.2, "sawtooth", 0.055);
+      if (wave % 5 === 0 && bossSpawnedForWave !== wave) {
+        spawnBoss(wave);
+        bossSpawnedForWave = wave;
+      }
+    }
+
     // 敌人距离玩家多远以内才会开火。
     // 怪物等级越高，攻击范围越大，但不会超过屏幕尺寸的一定比例。
     function enemyAttackRange() {
@@ -290,32 +332,40 @@ const canvas = document.querySelector("#game");
     }
 
     // 敌人一次发射几颗子弹。
-    // 等级越高弹幕越密，最多 9 颗。
-    function enemyShotCount() {
-      return Math.min(9, 1 + Math.floor((monsterLevel - 1) / 2));
+    // 波数和怪物等级越高弹幕越密，BOSS 额外加量。
+    function enemyShotCount(enemy) {
+      const base = 1 + Math.floor((wave - 1) / 2) + Math.floor((monsterLevel - 1) / 3);
+      const typeBonus = enemy.type === "boss" ? 4 : enemy.type === "shielder" ? 2 : enemy.type === "summoner" ? 1 : 0;
+      return Math.min(enemy.type === "boss" ? 16 : 10, base + typeBonus);
     }
 
     // 让某个敌人朝玩家方向发射一组子弹。
     function fireEnemyVolley(enemy, difficulty) {
-      const count = enemyShotCount();
+      const count = enemyShotCount(enemy);
       // atan2 可以算出“敌人指向玩家”的角度。
       const baseAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
-      const spread = Math.min(0.82, 0.14 * (count - 1));
-      const speed = (150 + wave * 12 + monsterLevel * 10) * difficulty.enemySpeed;
+      const spread = Math.min(enemy.type === "boss" ? 1.75 : 1.05, 0.13 * (count - 1));
+      const speed = (168 + wave * 15 + monsterLevel * 12) * difficulty.enemySpeed;
       for (let i = 0; i < count; i += 1) {
         // middle/offset 让多颗子弹围绕中间方向散开。
         const middle = (count - 1) / 2;
-        const angle = baseAngle + (i - middle) * (count === 1 ? 0 : spread / Math.max(1, count - 1));
+        let angle = baseAngle + (i - middle) * (count === 1 ? 0 : spread / Math.max(1, count - 1));
+        if (enemy.type === "boss" && enemy.volleyFlip) {
+          angle = -Math.PI / 2 + (i / count) * Math.PI * 2 + performance.now() / 1200;
+        } else if (enemy.type === "shielder") {
+          angle += Math.sin(performance.now() / 420 + i) * 0.16;
+        }
         enemyShots.push({
           x: enemy.x,
           y: enemy.y + enemy.radius * 0.7,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
-          radius: 5 + Math.min(3, Math.floor((monsterLevel - 1) / 4))
+          radius: enemy.type === "boss" ? 7 : 5 + Math.min(4, Math.floor((monsterLevel - 1) / 4))
         });
       }
+      enemy.volleyFlip = !enemy.volleyFlip;
       // 防止敌方子弹无限增加，数量太多会卡。
-      if (enemyShots.length > 260) enemyShots.splice(0, enemyShots.length - 260);
+      if (enemyShots.length > 360) enemyShots.splice(0, enemyShots.length - 360);
     }
 
     // 玩家开火。
@@ -361,31 +411,97 @@ const canvas = document.querySelector("#game");
       playTone(settings.mode === "auto" ? 720 : 640, 0.06, "square", 0.035);
     }
 
+    function makeEnemy(type, x, y, hp, radius, speed, points) {
+      const difficulty = difficulties[settings.difficulty];
+      return {
+        type,
+        x,
+        y,
+        baseX: x,
+        radius,
+        hp,
+        maxHp: hp,
+        shield: type === "shielder" ? Math.max(2, Math.floor(wave * 0.55)) : 0,
+        maxShield: type === "shielder" ? Math.max(2, Math.floor(wave * 0.55)) : 0,
+        speed,
+        wobble: rand(0.7, type === "boss" ? 1.2 : 2.2),
+        phase: rand(0, Math.PI * 2),
+        shotTimer: rand(0.8, type === "boss" ? 1.7 : 2.8) / Math.sqrt(wave * difficulty.enemyFire * (1 + monsterLevel * 0.16)),
+        summonTimer: type === "summoner" || type === "boss" ? rand(2.8, 4.8) : Infinity,
+        points
+      };
+    }
+
+    function spawnMinion(x, y) {
+      const difficulty = difficulties[settings.difficulty];
+      const hp = 1 + Math.floor(wave / 6);
+      const radius = 13;
+      enemies.push(makeEnemy(
+        "minion",
+        clamp(x + rand(-42, 42), radius, canvas.clientWidth - radius),
+        y,
+        hp,
+        radius,
+        (rand(118, 172) + wave * 7) * difficulty.enemySpeed,
+        Math.round(8 * difficulty.scoreScale * (1 + wave * 0.08))
+      ));
+    }
+
+    function spawnBoss(bossWave) {
+      const difficulty = difficulties[settings.difficulty];
+      const width = canvas.clientWidth;
+      const threatScale = 1 + (bossWave - 1) * 0.22 + (monsterLevel - 1) * 0.14;
+      const hpScale = settings.difficulty === "hard" ? 1.22 : settings.difficulty === "easy" ? 0.86 : 1;
+      const hp = Math.round((34 + bossWave * 9 + monsterLevel * 6) * threatScale * hpScale);
+      const boss = makeEnemy(
+        "boss",
+        width / 2,
+        -70,
+        hp,
+        46,
+        (42 + bossWave * 2.2) * difficulty.enemySpeed,
+        Math.round((360 + bossWave * 70) * difficulty.scoreScale)
+      );
+      boss.targetY = 88;
+      boss.shield = Math.round(6 + bossWave * 1.4);
+      boss.maxShield = boss.shield;
+      enemies.push(boss);
+    }
+
     // 生成一个新的敌人，从屏幕上方进入。
     function spawnEnemy() {
       const width = canvas.clientWidth;
       const difficulty = difficulties[settings.difficulty];
       // threatScale 随怪物等级上升，用来增强血量、分数等。
-      const threatScale = 1 + (monsterLevel - 1) * 0.08;
-      const toughChance = Math.min(0.16 + wave * 0.018 + monsterLevel * 0.012 + difficulty.enemyHealth, 0.72);
-      const hp = Math.random() < toughChance ? 2 : 1;
-      const bonusHp = Math.floor((monsterLevel - 1) / 5);
-      const hardBonus = settings.difficulty === "hard" && hp === 2 && wave > 3 ? 1 : 0;
-      const finalHp = hp + bonusHp + hardBonus;
-      const radius = hp === 2 ? 24 : 18;
-      enemies.push({
-        x: rand(34, width - 34),
-        y: -32,
-        baseX: rand(34, width - 34),
-        radius,
-        hp: finalHp,
-        maxHp: finalHp,
-        speed: (rand(56, 96) + wave * 9 + monsterLevel * 5) * difficulty.enemySpeed,
-        wobble: rand(0.7, 1.8),
-        phase: rand(0, Math.PI * 2),
-        shotTimer: rand(1.2, 3.4) / Math.sqrt(wave * difficulty.enemyFire * threatScale),
-        points: Math.round((hp === 2 ? 35 : 15) * difficulty.scoreScale * threatScale)
-      });
+      const threatScale = 1 + (wave - 1) * 0.14 + (monsterLevel - 1) * 0.1;
+      const eliteRoll = Math.random();
+      const shielderChance = clamp(0.02 + wave * 0.012 + difficulty.enemyHealth * 0.18, 0, 0.2);
+      const summonerChance = wave >= 4 ? clamp(0.01 + wave * 0.008, 0, 0.16) : 0;
+      const toughChance = Math.min(0.24 + wave * 0.022 + monsterLevel * 0.016 + difficulty.enemyHealth, 0.82);
+      let type = "basic";
+      if (eliteRoll < summonerChance) type = "summoner";
+      else if (eliteRoll < summonerChance + shielderChance) type = "shielder";
+      else if (eliteRoll < summonerChance + shielderChance + toughChance) type = "tough";
+
+      const bonusHp = Math.floor((wave - 1) / 3) + Math.floor((monsterLevel - 1) / 4);
+      const hardBonus = settings.difficulty === "hard" && wave > 3 ? 1 : 0;
+      const hpByType = {
+        basic: 1 + Math.floor(wave / 5),
+        minion: 1,
+        tough: 3 + bonusHp + hardBonus,
+        shielder: 3 + bonusHp + hardBonus,
+        summoner: 4 + bonusHp + hardBonus
+      };
+      const radiusByType = {
+        basic: 18,
+        tough: 24,
+        shielder: 25,
+        summoner: 27
+      };
+      const radius = radiusByType[type];
+      const speed = (rand(74, 122) + wave * 11 + monsterLevel * 6) * difficulty.enemySpeed * (type === "summoner" ? 0.82 : 1);
+      const points = Math.round((type === "basic" ? 16 : type === "tough" ? 38 : type === "shielder" ? 48 : 56) * difficulty.scoreScale * threatScale);
+      enemies.push(makeEnemy(type, rand(34, width - 34), -32, hpByType[type], radius, speed, points));
     }
 
     // 制造爆炸/受击的粒子效果。
@@ -431,14 +547,23 @@ const canvas = document.querySelector("#game");
         - (keys.has("ArrowUp") || keys.has("w") || keys.has("up") ? 1 : 0);
       const length = Math.hypot(dx, dy) || 1;
 
-      // 除以 length 是为了让斜着飞时速度不要变快。
-      player.x = clamp(player.x + (dx / length) * player.speed * dt, 26, width - 26);
-      player.y = clamp(player.y + (dy / length) * player.speed * dt, 92, height - 26);
+      // 除以 length 是为了让斜着飞时速度不要变快；触屏拖动时飞机跟随手指。
+      if (dragControl.active) {
+        const follow = Math.min(1, dt * 14);
+        player.x += (dragControl.targetX - player.x) * follow;
+        player.y += (dragControl.targetY - player.y) * follow;
+        player.x = clamp(player.x, 26, width - 26);
+        player.y = clamp(player.y, 68, height - 26);
+      } else {
+        player.x = clamp(player.x + (dx / length) * player.speed * dt, 26, width - 26);
+        player.y = clamp(player.y + (dy / length) * player.speed * dt, 68, height - 26);
+      }
       player.cooldown = Math.max(0, player.cooldown - dt);
       player.charge = Math.min(1, player.charge + dt * 0.16);
       player.invulnerable = Math.max(0, player.invulnerable - dt);
       elapsedTime += dt;
       updateMonsterLevel();
+      updateWaveProgress(dt);
       // 限时模式：倒计时归零就结束。
       if (settings.timed) {
         timeRemaining -= dt;
@@ -458,13 +583,13 @@ const canvas = document.querySelector("#game");
 
       // 根据当前难度、波次、怪物等级决定刷怪间隔。
       spawnTimer -= dt;
-      const spawnGap = clamp((0.86 - wave * 0.045 - monsterLevel * 0.018) * difficulty.spawnScale, 0.18, 1.12);
+      const bossAlive = enemies.some((enemy) => enemy.type === "boss");
+      const spawnGap = clamp((0.78 - wave * 0.032 - monsterLevel * 0.015) * difficulty.spawnScale * (bossAlive ? 1.22 : 1), 0.16, 0.95);
       if (spawnTimer <= 0) {
         spawnEnemy();
         spawnTimer = spawnGap;
       }
 
-      wave = 1 + Math.floor(score / 420);
       if (settings.mode === "auto") upgradeFire(false);
 
       // 背景星星向下移动，超过底部就从顶部重新出现。
@@ -503,30 +628,43 @@ const canvas = document.querySelector("#game");
       for (let i = enemies.length - 1; i >= 0; i -= 1) {
         const enemy = enemies[i];
         enemy.phase += enemy.wobble * dt;
-        enemy.y += enemy.speed * dt;
-        enemy.x += Math.sin(enemy.phase) * (64 + wave * 3) * dt;
+        if (enemy.type === "boss") {
+          if (enemy.y < enemy.targetY) enemy.y += enemy.speed * dt;
+          enemy.x += Math.sin(enemy.phase) * (86 + wave * 5) * dt;
+        } else {
+          enemy.y += enemy.speed * dt;
+          enemy.x += Math.sin(enemy.phase) * (70 + wave * 4) * dt;
+        }
         enemy.x = clamp(enemy.x, enemy.radius, width - enemy.radius);
         enemy.shotTimer -= dt;
+        enemy.summonTimer -= dt;
+
+        if (enemy.summonTimer <= 0 && enemy.y > 18) {
+          const summonCount = enemy.type === "boss" ? 3 : 2;
+          for (let s = 0; s < summonCount; s += 1) spawnMinion(enemy.x, enemy.y + enemy.radius * 0.4);
+          enemy.summonTimer = rand(enemy.type === "boss" ? 3.0 : 4.4, enemy.type === "boss" ? 4.8 : 6.2) / Math.sqrt(1 + wave * 0.04);
+          makeSparks(enemy.x, enemy.y, "#b794ff", 16);
+        }
 
         // 只有敌人在攻击范围内，才会朝玩家开火。
         const distanceToPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y);
         if (enemy.shotTimer <= 0 && enemy.y > 20 && distanceToPlayer <= enemyAttackRange()) {
           fireEnemyVolley(enemy, difficulty);
-          enemy.shotTimer = rand(1.4, 3.2) / Math.sqrt(wave * difficulty.enemyFire * (1 + monsterLevel * 0.12));
+          enemy.shotTimer = rand(enemy.type === "boss" ? 0.8 : 1.1, enemy.type === "boss" ? 1.8 : 2.7) / Math.sqrt(wave * difficulty.enemyFire * (1 + monsterLevel * 0.14));
           playTone(180, 0.08, "sawtooth", 0.018);
         }
 
-        if (enemy.y > height + enemy.radius) {
+        if (enemy.type !== "boss" && enemy.y > height + enemy.radius) {
           enemies.splice(i, 1);
           continue;
         }
 
-        // 玩家和敌人相撞，玩家受伤，敌人消失。
+        // 玩家和敌人相撞，玩家受伤；BOSS 不会因为碰撞消失。
         if (player.invulnerable <= 0 && circlesTouch(player, enemy)) {
-          enemies.splice(i, 1);
+          if (enemy.type !== "boss") enemies.splice(i, 1);
           makeSparks(enemy.x, enemy.y, "#ff75a0", 24);
           hurtPlayer();
-          continue;
+          if (enemy.type !== "boss") continue;
         }
 
         // 倒着遍历数组并 splice 删除，是为了删除元素时不跳过后面的对象。
@@ -534,7 +672,11 @@ const canvas = document.querySelector("#game");
           const bullet = bullets[j];
           if (!circlesTouch(enemy, bullet)) continue;
           bullets.splice(j, 1);
-          enemy.hp -= bullet.power;
+          if (enemy.shield > 0) {
+            enemy.shield = Math.max(0, enemy.shield - bullet.power);
+          } else {
+            enemy.hp -= bullet.power;
+          }
           makeSparks(bullet.x, bullet.y, "#6ff0ff", 6);
           if (enemy.hp <= 0) {
             // 敌人血量归零：加分、可能掉落道具、播放爆炸效果。
@@ -562,7 +704,8 @@ const canvas = document.querySelector("#game");
         if (circlesTouch(player, pickup)) {
           pickups.splice(i, 1);
           if (pickup.type === "life") {
-            player.lives = Math.min(5, player.lives + 1);
+            player.maxLives = Math.min(5, Math.max(player.maxLives, player.lives + 1));
+            player.lives = Math.min(player.maxLives, player.lives + 1);
           } else if (pickup.type === "upgrade") {
             upgradeFire(true);
           } else {
@@ -654,6 +797,7 @@ const canvas = document.querySelector("#game");
       for (const shot of enemyShots) drawEnemyShot(shot);
       for (const enemy of enemies) drawEnemy(enemy);
       drawPlayer();
+      drawPlayerStatusBars();
       for (const spark of sparks) drawSpark(spark);
 
       ctx.restore();
@@ -762,18 +906,59 @@ const canvas = document.querySelector("#game");
       ctx.restore();
     }
 
+    function drawPlayerStatusBars() {
+      const barWidth = 54;
+      const barHeight = 5;
+      const x = clamp(player.x - barWidth / 2, 8, canvas.clientWidth - barWidth - 8);
+      const y = clamp(player.y - 54, 10, canvas.clientHeight - 78);
+      const healthRatio = clamp(player.lives / Math.max(1, player.maxLives), 0, 1);
+      const energyRatio = settings.mode === "energy"
+        ? clamp(player.charge, 0, 1)
+        : clamp(player.fireLevel / Math.max(8, player.fireLevel + 3), 0, 1);
+
+      ctx.save();
+      ctx.fillStyle = "rgba(3, 8, 17, 0.58)";
+      ctx.strokeStyle = "rgba(238, 245, 255, 0.34)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x - 2, y - 2, barWidth + 4, barHeight * 2 + 8, 5);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(255, 93, 125, 0.25)";
+      ctx.fillRect(x, y, barWidth, barHeight);
+      ctx.fillStyle = "#ff5d7d";
+      ctx.fillRect(x, y, barWidth * healthRatio, barHeight);
+
+      ctx.fillStyle = "rgba(65, 215, 255, 0.22)";
+      ctx.fillRect(x, y + barHeight + 4, barWidth, barHeight);
+      ctx.fillStyle = "#41d7ff";
+      ctx.fillRect(x, y + barHeight + 4, barWidth * energyRatio, barHeight);
+      ctx.restore();
+    }
+
     // 画敌人。
     function drawEnemy(enemy) {
       ctx.save();
       ctx.translate(enemy.x, enemy.y);
       const body = ctx.createLinearGradient(0, -enemy.radius, 0, enemy.radius);
-      body.addColorStop(0, enemy.maxHp > 1 ? "#ffe985" : "#9fffcc");
-      body.addColorStop(0.55, enemy.maxHp > 1 ? "#ff7d6b" : "#28c782");
-      body.addColorStop(1, "#143428");
+      const isBoss = enemy.type === "boss";
+      const hasShield = enemy.shield > 0;
+      body.addColorStop(0, isBoss ? "#ffd2e0" : enemy.type === "summoner" ? "#dec6ff" : enemy.maxHp > 1 ? "#ffe985" : "#9fffcc");
+      body.addColorStop(0.55, isBoss ? "#d94f89" : enemy.type === "summoner" ? "#7a59d8" : enemy.maxHp > 1 ? "#ff7d6b" : "#28c782");
+      body.addColorStop(1, isBoss ? "#341023" : "#143428");
       ctx.fillStyle = body;
       ctx.beginPath();
-      ctx.ellipse(0, 0, enemy.radius * 1.28, enemy.radius * 0.72, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, enemy.radius * (isBoss ? 1.42 : 1.28), enemy.radius * (isBoss ? 0.84 : 0.72), 0, 0, Math.PI * 2);
       ctx.fill();
+
+      if (hasShield) {
+        ctx.strokeStyle = "rgba(183, 148, 255, 0.78)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, enemy.radius * 1.55 + Math.sin(performance.now() / 100) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       ctx.fillStyle = "rgba(238, 245, 255, 0.82)";
       ctx.beginPath();
@@ -793,6 +978,19 @@ const canvas = document.querySelector("#game");
       ctx.moveTo(-enemy.radius, enemy.radius * 0.42);
       ctx.quadraticCurveTo(0, enemy.radius * 0.86, enemy.radius, enemy.radius * 0.42);
       ctx.stroke();
+
+      if (enemy.hp < enemy.maxHp || enemy.maxShield > 0) {
+        const barWidth = enemy.radius * (isBoss ? 2.5 : 1.9);
+        const barY = -enemy.radius - (isBoss ? 16 : 10);
+        ctx.fillStyle = "rgba(3, 8, 17, 0.62)";
+        ctx.fillRect(-barWidth / 2, barY, barWidth, 4);
+        ctx.fillStyle = isBoss ? "#ff5d7d" : "#ffcf5b";
+        ctx.fillRect(-barWidth / 2, barY, barWidth * clamp(enemy.hp / enemy.maxHp, 0, 1), 4);
+        if (enemy.maxShield > 0) {
+          ctx.fillStyle = "#b794ff";
+          ctx.fillRect(-barWidth / 2, barY - 6, barWidth * clamp(enemy.shield / enemy.maxShield, 0, 1), 3);
+        }
+      }
       ctx.restore();
     }
 
@@ -886,6 +1084,97 @@ const canvas = document.querySelector("#game");
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       keys.delete(key);
     });
+
+    function setDragTargetFromClient(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      dragControl.targetX = clamp(clientX - rect.left, 26, rect.width - 26);
+      dragControl.targetY = clamp(clientY - rect.top - 38, 68, rect.height - 26);
+    }
+
+    function setDragTarget(event) {
+      setDragTargetFromClient(event.clientX, event.clientY);
+    }
+
+    function canStartDrag(event) {
+      if (!running || paused || !overlay.classList.contains("hidden")) return false;
+      return !(event.pointerType === "mouse" && event.button !== 0);
+    }
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (!canStartDrag(event)) return;
+      event.preventDefault();
+      dragControl.active = true;
+      dragControl.pointerId = event.pointerId;
+      setDragTarget(event);
+      canvas.setPointerCapture(event.pointerId);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!dragControl.active || dragControl.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      setDragTarget(event);
+    });
+
+    function stopDrag(event) {
+      if (dragControl.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      dragControl.active = false;
+      dragControl.pointerId = null;
+    }
+
+    canvas.addEventListener("pointerup", stopDrag);
+    canvas.addEventListener("pointercancel", stopDrag);
+
+    canvas.addEventListener("mousedown", (event) => {
+      if (!canStartDrag(event)) return;
+      event.preventDefault();
+      dragControl.active = true;
+      dragControl.pointerId = "mouse";
+      setDragTarget(event);
+    });
+
+    window.addEventListener("mousemove", (event) => {
+      if (!dragControl.active || dragControl.pointerId !== "mouse") return;
+      event.preventDefault();
+      setDragTarget(event);
+    });
+
+    window.addEventListener("mouseup", (event) => {
+      if (dragControl.pointerId !== "mouse") return;
+      event.preventDefault();
+      dragControl.active = false;
+      dragControl.pointerId = null;
+    });
+
+    canvas.addEventListener("touchstart", (event) => {
+      if (!running || paused || !overlay.classList.contains("hidden")) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      event.preventDefault();
+      dragControl.active = true;
+      dragControl.pointerId = touch.identifier;
+      setDragTargetFromClient(touch.clientX, touch.clientY);
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", (event) => {
+      if (!dragControl.active || typeof dragControl.pointerId !== "number") return;
+      const touch = Array.from(event.touches).find((item) => item.identifier === dragControl.pointerId);
+      if (!touch) return;
+      event.preventDefault();
+      setDragTargetFromClient(touch.clientX, touch.clientY);
+    }, { passive: false });
+
+    function stopTouchDrag(event) {
+      if (typeof dragControl.pointerId !== "number") return;
+      const ended = Array.from(event.changedTouches).some((touch) => touch.identifier === dragControl.pointerId);
+      if (!ended) return;
+      event.preventDefault();
+      dragControl.active = false;
+      dragControl.pointerId = null;
+    }
+
+    canvas.addEventListener("touchend", stopTouchDrag, { passive: false });
+    canvas.addEventListener("touchcancel", stopTouchDrag, { passive: false });
 
     // 手机/触屏上的虚拟方向按钮。
     // data-hold 里写的是这个按钮代表的动作，比如 left/right/fire。

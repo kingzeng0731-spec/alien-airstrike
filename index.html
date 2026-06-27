@@ -67,27 +67,13 @@
       <canvas id="game" width="1040" height="760" aria-label="游戏画布"></canvas>
 
       <div class="hud" aria-live="polite">
-        <div class="stat">
+        <div class="stat score-stat">
           <div class="label">分数</div>
           <div class="value" id="score">0</div>
-        </div>
-        <div class="stat">
-          <div class="label">生命</div>
-          <div class="value danger" id="lives">3</div>
-        </div>
-        <div class="stat">
-          <div class="label">波次/怪物</div>
-          <div class="value" id="wave">1</div>
-        </div>
-        <div class="stat">
-          <div class="label" id="specialLabel">能量</div>
-          <div class="value good" id="charge">100%</div>
-        </div>
-        <div class="stat">
-          <div class="label">时间</div>
-          <div class="value" id="timer">不限</div>
+          <div class="hud-timer" id="timer">0:00</div>
         </div>
       </div>
+      <div class="wave-notice" id="waveNotice">第 1 波</div>
 
       <div class="touch-controls" aria-hidden="false">
         <div class="pad">
