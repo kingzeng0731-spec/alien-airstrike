@@ -50,7 +50,11 @@ const canvas = document.querySelector("#game");
       active: false,
       pointerId: null,
       targetX: 520,
-      targetY: 640
+      targetY: 640,
+      startX: 520,
+      startY: 640,
+      touchStartX: 520,
+      touchStartY: 640
     };
 
     // 玩家在开始界面选择的设置。
@@ -224,6 +228,10 @@ const canvas = document.querySelector("#game");
       dragControl.active = false;
       dragControl.targetX = player.x;
       dragControl.targetY = player.y;
+      dragControl.startX = player.x;
+      dragControl.startY = player.y;
+      dragControl.touchStartX = player.x;
+      dragControl.touchStartY = player.y;
       running = true;
       paused = false;
       settingsEl.hidden = true;
@@ -382,17 +390,17 @@ const canvas = document.querySelector("#game");
       if (settings.mode === "auto") {
         // 自动升级模式：火力等级越高，弹丸越多、散射越宽、威力越强。
         const level = player.fireLevel;
-        const pelletCount = Math.min(18, 1 + Math.floor((level - 1) * 1.35));
-        const spread = Math.min(0.9, 0.12 + level * 0.035);
-        const power = 1 + Math.floor((level - 1) / 8);
+        const pelletCount = Math.min(11, 1 + Math.floor((level - 1) * 0.72));
+        const spread = Math.min(0.74, 0.1 + level * 0.026);
+        const power = 1 + Math.floor((level - 1) / 11);
         for (let i = 0; i < pelletCount; i += 1) {
           const middle = (pelletCount - 1) / 2;
           const offset = i - middle;
           const ratio = middle === 0 ? 0 : offset / middle;
           const angle = -Math.PI / 2 + ratio * spread;
-          const speed = 690 + Math.min(level * 9, 210);
+          const speed = 650 + Math.min(level * 6, 150);
           bullets.push({
-            x: player.x + offset * 5,
+            x: player.x + offset * 4,
             y: player.y - 24 + Math.abs(offset) * 1.4,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
@@ -400,14 +408,14 @@ const canvas = document.querySelector("#game");
             power: i === Math.round(middle) ? power : Math.max(1, power - 1)
           });
         }
-        player.cooldown = Math.max(settings.timed ? 0.08 : 0.045, 0.2 - level * 0.012);
+        player.cooldown = Math.max(settings.timed ? 0.12 : 0.09, 0.24 - level * 0.007);
       } else {
         // 能量模式每次射击会消耗一点 charge。
         player.cooldown = auto ? 0.16 : 0.13;
         player.charge = Math.max(0, player.charge - 0.08);
       }
       // 同样限制玩家子弹数量，避免对象太多影响性能。
-      if (bullets.length > 420) bullets.splice(0, bullets.length - 420);
+      if (bullets.length > 180) bullets.splice(0, bullets.length - 180);
       playTone(settings.mode === "auto" ? 720 : 640, 0.06, "square", 0.035);
     }
 
@@ -486,11 +494,11 @@ const canvas = document.querySelector("#game");
       const bonusHp = Math.floor((wave - 1) / 3) + Math.floor((monsterLevel - 1) / 4);
       const hardBonus = settings.difficulty === "hard" && wave > 3 ? 1 : 0;
       const hpByType = {
-        basic: 1 + Math.floor(wave / 5),
+        basic: 2 + Math.floor(wave / 3) + Math.floor(monsterLevel / 5),
         minion: 1,
-        tough: 3 + bonusHp + hardBonus,
-        shielder: 3 + bonusHp + hardBonus,
-        summoner: 4 + bonusHp + hardBonus
+        tough: 5 + bonusHp + hardBonus,
+        shielder: 5 + bonusHp + hardBonus,
+        summoner: 7 + bonusHp + hardBonus
       };
       const radiusByType = {
         basic: 18,
@@ -499,7 +507,7 @@ const canvas = document.querySelector("#game");
         summoner: 27
       };
       const radius = radiusByType[type];
-      const speed = (rand(74, 122) + wave * 11 + monsterLevel * 6) * difficulty.enemySpeed * (type === "summoner" ? 0.82 : 1);
+      const speed = (rand(112, 168) + wave * 14 + monsterLevel * 8) * difficulty.enemySpeed * (type === "summoner" ? 0.86 : 1);
       const points = Math.round((type === "basic" ? 16 : type === "tough" ? 38 : type === "shielder" ? 48 : 56) * difficulty.scoreScale * threatScale);
       enemies.push(makeEnemy(type, rand(34, width - 34), -32, hpByType[type], radius, speed, points));
     }
@@ -614,7 +622,7 @@ const canvas = document.querySelector("#game");
         const shot = enemyShots[i];
         shot.x += shot.vx * dt;
         shot.y += shot.vy * dt;
-        if (shot.y > height + 34 || shot.x < -34 || shot.x > width + 34) {
+        if (shot.y > height - shot.radius || shot.x < -shot.radius || shot.x > width + shot.radius) {
           enemyShots.splice(i, 1);
           continue;
         }
@@ -1095,6 +1103,25 @@ const canvas = document.querySelector("#game");
       setDragTargetFromClient(event.clientX, event.clientY);
     }
 
+    function beginDrag(pointerId, clientX, clientY) {
+      dragControl.active = true;
+      dragControl.pointerId = pointerId;
+      dragControl.startX = player.x;
+      dragControl.startY = player.y;
+      dragControl.touchStartX = clientX;
+      dragControl.touchStartY = clientY;
+      dragControl.targetX = player.x;
+      dragControl.targetY = player.y;
+    }
+
+    function updateDragByDelta(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const dx = clientX - dragControl.touchStartX;
+      const dy = clientY - dragControl.touchStartY;
+      dragControl.targetX = clamp(dragControl.startX + dx, 26, rect.width - 26);
+      dragControl.targetY = clamp(dragControl.startY + dy, 68, rect.height - 26);
+    }
+
     function canStartDrag(event) {
       if (!running || paused || !overlay.classList.contains("hidden")) return false;
       return !(event.pointerType === "mouse" && event.button !== 0);
@@ -1103,16 +1130,14 @@ const canvas = document.querySelector("#game");
     canvas.addEventListener("pointerdown", (event) => {
       if (!canStartDrag(event)) return;
       event.preventDefault();
-      dragControl.active = true;
-      dragControl.pointerId = event.pointerId;
-      setDragTarget(event);
+      beginDrag(event.pointerId, event.clientX, event.clientY);
       canvas.setPointerCapture(event.pointerId);
     });
 
     canvas.addEventListener("pointermove", (event) => {
       if (!dragControl.active || dragControl.pointerId !== event.pointerId) return;
       event.preventDefault();
-      setDragTarget(event);
+      updateDragByDelta(event.clientX, event.clientY);
     });
 
     function stopDrag(event) {
@@ -1128,15 +1153,13 @@ const canvas = document.querySelector("#game");
     canvas.addEventListener("mousedown", (event) => {
       if (!canStartDrag(event)) return;
       event.preventDefault();
-      dragControl.active = true;
-      dragControl.pointerId = "mouse";
-      setDragTarget(event);
+      beginDrag("mouse", event.clientX, event.clientY);
     });
 
     window.addEventListener("mousemove", (event) => {
       if (!dragControl.active || dragControl.pointerId !== "mouse") return;
       event.preventDefault();
-      setDragTarget(event);
+      updateDragByDelta(event.clientX, event.clientY);
     });
 
     window.addEventListener("mouseup", (event) => {
@@ -1151,9 +1174,7 @@ const canvas = document.querySelector("#game");
       const touch = event.touches[0];
       if (!touch) return;
       event.preventDefault();
-      dragControl.active = true;
-      dragControl.pointerId = touch.identifier;
-      setDragTargetFromClient(touch.clientX, touch.clientY);
+      beginDrag(touch.identifier, touch.clientX, touch.clientY);
     }, { passive: false });
 
     canvas.addEventListener("touchmove", (event) => {
@@ -1161,7 +1182,7 @@ const canvas = document.querySelector("#game");
       const touch = Array.from(event.touches).find((item) => item.identifier === dragControl.pointerId);
       if (!touch) return;
       event.preventDefault();
-      setDragTargetFromClient(touch.clientX, touch.clientY);
+      updateDragByDelta(touch.clientX, touch.clientY);
     }, { passive: false });
 
     function stopTouchDrag(event) {
