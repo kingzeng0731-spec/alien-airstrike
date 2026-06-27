@@ -49,8 +49,20 @@ const canvas = document.querySelector("#game");
     let grazeCooldown = 0;
     let rewardChoices = [];
 
-    const waveDuration = 24;
-    const bossEveryWaves = 3;
+    const normalWaveDuration = 24;
+    const timedWaveDuration = 18;
+    const normalBossEveryWaves = 3;
+    const timedBossEveryWaves = 2;
+    const maxPlayerLives = 6;
+    const maxBombs = 3;
+    const stats = {
+      maxWave: 1,
+      kills: 0,
+      bossKills: 0,
+      grazes: 0,
+      bombsUsed: 0,
+      cards: []
+    };
     const dragControl = {
       active: false,
       pointerId: null,
@@ -117,6 +129,7 @@ const canvas = document.querySelector("#game");
       charge: 1,
       fireLevel: 1,
       nextUpgrade: 180,
+      lastUpgradeScore: 0,
       invulnerable: 0
     };
 
@@ -196,6 +209,47 @@ const canvas = document.querySelector("#game");
       return settings.timed ? `限时 ${settings.timeLimit} 秒` : "不限时";
     }
 
+    function waveDuration() {
+      return settings.timed ? timedWaveDuration : normalWaveDuration;
+    }
+
+    function bossEveryWaves() {
+      return settings.timed ? timedBossEveryWaves : normalBossEveryWaves;
+    }
+
+    function resetStats() {
+      stats.maxWave = 1;
+      stats.kills = 0;
+      stats.bossKills = 0;
+      stats.grazes = 0;
+      stats.bombsUsed = 0;
+      stats.cards = [];
+    }
+
+    function recordKill(enemy) {
+      stats.kills += 1;
+      if (enemy.type === "boss") stats.bossKills += 1;
+    }
+
+    function rewardDescription(id) {
+      if (id === "fire") {
+        return settings.mode === "energy"
+          ? `火力 ${player.fireLevel} -> ${player.fireLevel + 2}。主炮伤害提升，满能量追加副炮，低能量仍可弱射。`
+          : `火力 ${player.fireLevel} -> ${player.fireLevel + 2}。弹幕数量、射速和主弹威力提升。`;
+      }
+      if (id === "shield") return `生命上限 ${player.maxLives} -> ${Math.min(maxPlayerLives, player.maxLives + 1)}，回复 1 点生命并回满护盾。`;
+      if (id === "option") return options.length < 2 ? `僚机 ${options.length} -> ${options.length + 1}，跟随你直射支援。` : "僚机已满，改为回满能量和护盾。";
+      if (id === "bomb") return `炸弹 ${player.bombs} -> ${Math.min(maxBombs, player.bombs + 1)}，并清空敌方弹幕。`;
+      if (id === "graze") return "立刻回满能量，获得短暂无敌，适合接高压弹幕。";
+      return "";
+    }
+
+    function settlementText(reason) {
+      const cardText = stats.cards.length > 0 ? stats.cards.join("、") : "无";
+      const result = reason === "time" ? "时间到" : "任务结束";
+      return `${result}。最终分数：${score}。生存 ${formatClock(elapsedTime)}，最大波次 ${stats.maxWave}，击破 ${stats.kills} 架，BOSS ${stats.bossKills} 个，擦弹 ${stats.grazes} 次，使用炸弹 ${stats.bombsUsed} 次。技能卡：${cardText}。${modeText()} / ${timeText()} / ${difficulties[settings.difficulty].label}难度。`;
+    }
+
     // 根据 settings 更新按钮的 aria-pressed 状态，让界面知道哪个选项被选中了。
     function syncSettingButtons() {
       for (const button of document.querySelectorAll("[data-option]")) {
@@ -216,6 +270,7 @@ const canvas = document.querySelector("#game");
       waveNoticeTimer = 2.4;
       waveNoticeText = "第 1 波";
       rewardChoices = [];
+      resetStats();
       spawnTimer = 0;
       timeRemaining = settings.timed ? settings.timeLimit : 0;
       elapsedTime = 0;
@@ -235,6 +290,7 @@ const canvas = document.querySelector("#game");
       player.charge = 1;
       player.fireLevel = 1;
       player.nextUpgrade = settings.difficulty === "hard" ? 190 : settings.difficulty === "easy" ? 120 : 150;
+      player.lastUpgradeScore = 0;
       player.invulnerable = 1.6;
       dragControl.active = false;
       dragControl.targetX = player.x;
@@ -257,7 +313,7 @@ const canvas = document.querySelector("#game");
     function endGame(reason = "lost") {
       running = false;
       titleEl.textContent = reason === "time" ? "时间到" : "任务结束";
-      messageEl.textContent = `最终分数：${score}。生存 ${formatClock(elapsedTime)}，怪物 Lv.${monsterLevel}。${modeText()} / ${timeText()} / ${difficulties[settings.difficulty].label}难度。`;
+      messageEl.textContent = settlementText(reason);
       startBtn.textContent = "重新开始";
       settingsEl.hidden = false;
       overlay.classList.remove("hidden");
@@ -280,6 +336,7 @@ const canvas = document.querySelector("#game");
     }
 
     function bossDefeated(enemy) {
+      recordKill(enemy);
       score += enemy.points;
       addPickup(enemy.x, enemy.y, true);
       makeSparks(enemy.x, enemy.y, "#ffcf5b", 64);
@@ -288,11 +345,11 @@ const canvas = document.querySelector("#game");
 
     function showRewardCards() {
       rewardChoices = [
-        { id: "fire", title: "火力强化", desc: "火力等级 +2，主炮更快成型。" },
-        { id: "shield", title: "护盾核心", desc: "回满护盾，生命上限 +1。" },
-        { id: "option", title: "僚机支援", desc: "增加一个僚机，已满则补满能量。" },
-        { id: "bomb", title: "炸弹补给", desc: "炸弹 +1，并清空敌方弹幕。" },
-        { id: "graze", title: "擦弹充能", desc: "立刻回满能量，获得短暂无敌。" }
+        { id: "fire", title: "火力强化", desc: rewardDescription("fire") },
+        { id: "shield", title: "护盾核心", desc: rewardDescription("shield") },
+        { id: "option", title: "僚机支援", desc: rewardDescription("option") },
+        { id: "bomb", title: "炸弹补给", desc: rewardDescription("bomb") },
+        { id: "graze", title: "擦弹充能", desc: rewardDescription("graze") }
       ].sort(() => Math.random() - 0.5).slice(0, 3);
       paused = true;
       titleEl.textContent = "选择技能";
@@ -309,23 +366,25 @@ const canvas = document.querySelector("#game");
     }
 
     function applyReward(id) {
+      const choice = rewardChoices.find((item) => item.id === id);
       if (id === "fire") {
         player.fireLevel += 2;
         player.nextUpgrade += autoUpgradeStep();
       } else if (id === "shield") {
-        player.maxLives = Math.min(6, player.maxLives + 1);
+        player.maxLives = Math.min(maxPlayerLives, player.maxLives + 1);
         player.lives = Math.min(player.maxLives, player.lives + 1);
         player.shield = 1;
       } else if (id === "option") {
         if (options.length < 2) options.push({ side: options.length === 0 ? -1 : 1, x: player.x, y: player.y });
         else player.charge = 1;
       } else if (id === "bomb") {
-        player.bombs = Math.min(3, player.bombs + 1);
+        player.bombs = Math.min(maxBombs, player.bombs + 1);
         enemyShots.length = 0;
       } else if (id === "graze") {
         player.charge = 1;
         player.invulnerable = Math.max(player.invulnerable, 1.2);
       }
+      if (choice) stats.cards.push(choice.title);
       rewardChoices = [];
       settingsEl.innerHTML = initialSettingsHtml;
       bindSettingButtons();
@@ -340,7 +399,7 @@ const canvas = document.querySelector("#game");
     function updateHud() {
       scoreEl.textContent = String(score);
       timerEl.textContent = settings.timed ? `${Math.max(0, Math.ceil(timeRemaining))}s` : formatClock(elapsedTime);
-      const nextWaveIn = Math.max(0, wave * waveDuration - elapsedTime);
+      const nextWaveIn = Math.max(0, wave * waveDuration() - elapsedTime);
       if (waveNoticeTimer > 0) {
         waveNoticeEl.textContent = waveNoticeText;
         waveNoticeEl.classList.remove("hidden");
@@ -364,7 +423,7 @@ const canvas = document.querySelector("#game");
     // 自动升级模式下的最高火力等级。
     // 限时模式最多 5 级，不限时模式可以无限成长。
     function autoMaxLevel() {
-      return settings.timed ? 5 : Infinity;
+      return settings.timed ? 6 : Infinity;
     }
 
     // 自动升级模式下，每升一级需要增加多少分数门槛。
@@ -385,19 +444,20 @@ const canvas = document.querySelector("#game");
     }
 
     function updateWaveProgress(dt) {
-      const nextWave = 1 + Math.floor(elapsedTime / waveDuration);
+      const nextWave = 1 + Math.floor(elapsedTime / waveDuration());
       if (nextWave <= wave) {
         waveNoticeTimer = Math.max(0, waveNoticeTimer - dt);
         return;
       }
 
       wave = nextWave;
+      stats.maxWave = Math.max(stats.maxWave, wave);
       waveNoticeTimer = 2.8;
-      waveNoticeText = wave % bossEveryWaves === 0 ? `第 ${wave} 波 BOSS` : `第 ${wave} 波`;
+      waveNoticeText = wave % bossEveryWaves() === 0 ? `第 ${wave} 波 BOSS` : `第 ${wave} 波`;
       spawnTimer = Math.min(spawnTimer, 0.12);
-      makeSparks(canvas.clientWidth / 2, 78, wave % bossEveryWaves === 0 ? "#ff5d7d" : "#ffcf5b", wave % bossEveryWaves === 0 ? 46 : 28);
-      playTone(wave % bossEveryWaves === 0 ? 90 : 160, 0.2, "sawtooth", 0.055);
-      if (wave % bossEveryWaves === 0 && bossSpawnedForWave !== wave) {
+      makeSparks(canvas.clientWidth / 2, 78, wave % bossEveryWaves() === 0 ? "#ff5d7d" : "#ffcf5b", wave % bossEveryWaves() === 0 ? 46 : 28);
+      playTone(wave % bossEveryWaves() === 0 ? 90 : 160, 0.2, "sawtooth", 0.055);
+      if (wave % bossEveryWaves() === 0 && bossSpawnedForWave !== wave) {
         spawnBoss(wave);
         bossSpawnedForWave = wave;
       }
@@ -465,12 +525,24 @@ const canvas = document.querySelector("#game");
     // auto=true 表示自动升级模式里自动射击；false 表示玩家按键射击。
     function shoot(auto = false) {
       if (player.cooldown > 0) return;
-      if (settings.mode === "energy" && player.charge < 0.11) return;
-      // 能量模式：基础是一颗直线子弹；能量较高时额外发两颗斜向子弹。
-      if (settings.mode === "energy") bullets.push({ x: player.x, y: player.y - 28, vx: 0, vy: -720, radius: 4, power: 1 });
-      if (settings.mode === "energy" && player.charge > 0.62) {
-        bullets.push({ x: player.x - 16, y: player.y - 22, vx: -48, vy: -680, radius: 3, power: 1 });
-        bullets.push({ x: player.x + 16, y: player.y - 22, vx: 48, vy: -680, radius: 3, power: 1 });
+      // 能量模式：低能量也能弱射；火力等级会提升主炮伤害、副炮数量和满能量收益。
+      if (settings.mode === "energy") {
+        const level = player.fireLevel;
+        const lowEnergy = player.charge < 0.11;
+        const fullEnergy = player.charge > 0.86;
+        const strongEnergy = player.charge > 0.62;
+        const mainPower = lowEnergy ? 1 : 1 + Math.floor((level - 1) / 3) + (fullEnergy ? 1 : 0);
+        const mainRadius = fullEnergy ? 6 : lowEnergy ? 3 : 4 + Math.min(2, Math.floor(level / 5));
+        bullets.push({ x: player.x, y: player.y - 28, vx: 0, vy: lowEnergy ? -560 : -720, radius: mainRadius, power: mainPower, pierce: fullEnergy ? 1 : 0 });
+
+        const sidePairs = (strongEnergy ? 1 : 0) + (level >= 4 && player.charge > 0.44 ? 1 : 0) + (level >= 8 && fullEnergy ? 1 : 0);
+        for (let pair = 0; pair < sidePairs; pair += 1) {
+          const spread = 44 + pair * 34;
+          const offset = 15 + pair * 9;
+          const sidePower = fullEnergy && pair === 0 ? 2 : 1;
+          bullets.push({ x: player.x - offset, y: player.y - 22 + pair * 3, vx: -spread, vy: -660 - pair * 18, radius: 3 + (fullEnergy ? 1 : 0), power: sidePower, pierce: fullEnergy && pair === 0 ? 1 : 0 });
+          bullets.push({ x: player.x + offset, y: player.y - 22 + pair * 3, vx: spread, vy: -660 - pair * 18, radius: 3 + (fullEnergy ? 1 : 0), power: sidePower, pierce: fullEnergy && pair === 0 ? 1 : 0 });
+        }
       }
       if (options.length > 0 && player.charge > 0.22) {
         for (const option of options) {
@@ -501,8 +573,9 @@ const canvas = document.querySelector("#game");
         player.cooldown = Math.max(settings.timed ? 0.12 : 0.09, 0.24 - level * 0.007);
       } else {
         // 能量模式每次射击会消耗一点 charge。
-        player.cooldown = auto ? 0.16 : 0.13;
-        player.charge = Math.max(0, player.charge - 0.08);
+        const lowEnergy = player.charge < 0.11;
+        player.cooldown = lowEnergy ? 0.24 : Math.max(0.09, 0.14 - Math.min(player.fireLevel, 10) * 0.004);
+        player.charge = Math.max(0, player.charge - (lowEnergy ? 0.025 : Math.max(0.052, 0.082 - player.fireLevel * 0.0025)));
       }
       // 同样限制玩家子弹数量，避免对象太多影响性能。
       if (bullets.length > 180) bullets.splice(0, bullets.length - 180);
@@ -512,6 +585,7 @@ const canvas = document.querySelector("#game");
     function useBomb() {
       if (!running || paused || player.bombs <= 0) return;
       player.bombs -= 1;
+      stats.bombsUsed += 1;
       player.invulnerable = Math.max(player.invulnerable, 1.8);
       shake = 18;
       enemyShots.length = 0;
@@ -523,8 +597,13 @@ const canvas = document.querySelector("#game");
         makeSparks(enemy.x, enemy.y, "#ffcf5b", enemy.type === "boss" ? 36 : 22);
         if (enemy.hp <= 0) {
           enemies.splice(i, 1);
-          score += enemy.points;
-          addPickup(enemy.x, enemy.y, true);
+          if (enemy.type === "boss") {
+            bossDefeated(enemy);
+          } else {
+            recordKill(enemy);
+            score += enemy.points;
+            addPickup(enemy.x, enemy.y, true);
+          }
         }
       }
       makeSparks(player.x, player.y, "#ff8aa6", 70);
@@ -807,6 +886,7 @@ const canvas = document.querySelector("#game");
           hurtPlayer();
         } else if (grazeCooldown <= 0 && circlesTouch(grazeZone, shot) && !circlesTouch(hitbox, shot)) {
           grazeCooldown = 0.12;
+          stats.grazes += 1;
           score += 2;
           player.charge = Math.min(1, player.charge + 0.015);
           makeSparks(player.x, player.y - 6, "#d7fbff", 3);
@@ -894,7 +974,9 @@ const canvas = document.querySelector("#game");
           const bullet = bullets[j];
           if (!circlesTouch(enemy, bullet)) continue;
           if (enemy.visible === false) continue;
-          bullets.splice(j, 1);
+          const consumeBullet = (bullet.pierce || 0) <= 0;
+          if (consumeBullet) bullets.splice(j, 1);
+          else bullet.pierce -= 1;
           if (enemy.shield > 0) {
             enemy.shield = Math.max(0, enemy.shield - bullet.power);
           } else {
@@ -907,6 +989,7 @@ const canvas = document.querySelector("#game");
             if (enemy.type === "boss") {
               bossDefeated(enemy);
             } else {
+              recordKill(enemy);
               score += enemy.points;
               if (enemy.type === "bomber") fireEnemyBurst(enemy, 8, 150);
               addPickup(enemy.x, enemy.y);
@@ -932,12 +1015,12 @@ const canvas = document.querySelector("#game");
         if (circlesTouch(player, pickup)) {
           pickups.splice(i, 1);
           if (pickup.type === "life") {
-            player.maxLives = Math.min(5, Math.max(player.maxLives, player.lives + 1));
+            player.maxLives = Math.min(maxPlayerLives, Math.max(player.maxLives, player.lives + 1));
             player.lives = Math.min(player.maxLives, player.lives + 1);
           } else if (pickup.type === "upgrade") {
             upgradeFire(true);
           } else if (pickup.type === "bomb") {
-            player.bombs = Math.min(3, player.bombs + 1);
+            player.bombs = Math.min(maxBombs, player.bombs + 1);
           } else if (pickup.type === "option") {
             if (options.length < 2) options.push({ side: options.length === 0 ? -1 : 1, x: player.x, y: player.y });
             else player.charge = 1;
@@ -979,11 +1062,13 @@ const canvas = document.querySelector("#game");
       if (force) {
         // force=true 表示捡到了升级道具，直接升一级。
         player.fireLevel = Math.min(maxLevel, player.fireLevel + 1);
+        player.lastUpgradeScore = score;
         upgraded = true;
       } else {
         // force=false 表示根据分数自动升级。while 可以一次补上多级。
         while (score >= player.nextUpgrade && player.fireLevel < maxLevel) {
           player.fireLevel += 1;
+          player.lastUpgradeScore = player.nextUpgrade;
           player.nextUpgrade += autoUpgradeStep();
           upgraded = true;
         }
@@ -1048,6 +1133,7 @@ const canvas = document.querySelector("#game");
       for (const option of options) drawOption(option);
       drawPlayer();
       drawPlayerStatusBars();
+      drawBossStatus();
       for (const spark of sparks) drawSpark(spark);
 
       ctx.restore();
@@ -1180,19 +1266,24 @@ const canvas = document.querySelector("#game");
     }
 
     function drawPlayerStatusBars() {
-      const barWidth = 54;
-      const barHeight = 5;
+      const barWidth = 58;
+      const barHeight = 4;
+      const gap = 3;
       const x = clamp(player.x - barWidth / 2, 8, canvas.clientWidth - barWidth - 8);
-      const y = clamp(player.y - 54, 10, canvas.clientHeight - 78);
+      const y = clamp(player.y - 60, 10, canvas.clientHeight - 86);
       const healthRatio = clamp(player.lives / Math.max(1, player.maxLives), 0, 1);
-      const energyRatio = clamp(Math.max(player.shield, settings.mode === "energy" ? player.charge * 0.7 : player.fireLevel / Math.max(8, player.fireLevel + 3)), 0, 1);
+      const shieldRatio = clamp(player.shield, 0, 1);
+      const fireProgress = Number.isFinite(player.nextUpgrade)
+        ? clamp((score - player.lastUpgradeScore) / Math.max(1, player.nextUpgrade - player.lastUpgradeScore), 0, 1)
+        : clamp(player.fireLevel / Math.max(8, player.fireLevel + 3), 0, 1);
+      const energyRatio = settings.mode === "energy" ? clamp(player.charge, 0, 1) : fireProgress;
 
       ctx.save();
       ctx.fillStyle = "rgba(3, 8, 17, 0.58)";
       ctx.strokeStyle = "rgba(238, 245, 255, 0.34)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(x - 2, y - 2, barWidth + 4, barHeight * 2 + 8, 5);
+      ctx.roundRect(x - 2, y - 2, barWidth + 4, barHeight * 3 + gap * 2 + 4, 5);
       ctx.fill();
       ctx.stroke();
 
@@ -1202,15 +1293,59 @@ const canvas = document.querySelector("#game");
       ctx.fillRect(x, y, barWidth * healthRatio, barHeight);
 
       ctx.fillStyle = "rgba(65, 215, 255, 0.22)";
-      ctx.fillRect(x, y + barHeight + 4, barWidth, barHeight);
+      ctx.fillRect(x, y + barHeight + gap, barWidth, barHeight);
       ctx.fillStyle = "#41d7ff";
-      ctx.fillRect(x, y + barHeight + 4, barWidth * energyRatio, barHeight);
+      ctx.fillRect(x, y + barHeight + gap, barWidth * shieldRatio, barHeight);
+
+      ctx.fillStyle = "rgba(100, 242, 164, 0.2)";
+      ctx.fillRect(x, y + (barHeight + gap) * 2, barWidth, barHeight);
+      ctx.fillStyle = settings.mode === "energy" ? "#6ff0ff" : "#64f2a4";
+      ctx.fillRect(x, y + (barHeight + gap) * 2, barWidth * energyRatio, barHeight);
 
       ctx.fillStyle = "#fff7fb";
       ctx.font = "bold 9px system-ui";
       ctx.textAlign = "right";
       ctx.textBaseline = "bottom";
       ctx.fillText(`B${player.bombs}`, x + barWidth, y - 3);
+      ctx.restore();
+    }
+
+    function drawBossStatus() {
+      const boss = enemies.find((enemy) => enemy.type === "boss");
+      if (!boss) return;
+      const width = Math.min(380, canvas.clientWidth - 160);
+      if (width < 160) return;
+      const x = (canvas.clientWidth - width) / 2;
+      const y = 36;
+      const shieldRatio = boss.maxShield > 0 ? clamp(boss.shield / boss.maxShield, 0, 1) : 0;
+      const phaseCount = 3;
+      const phase = Math.min(phaseCount, Math.max(1, phaseCount - Math.floor((boss.hp / boss.maxHp) * phaseCount) + 1));
+
+      ctx.save();
+      ctx.fillStyle = "rgba(3, 8, 17, 0.62)";
+      ctx.strokeStyle = "rgba(255, 93, 125, 0.44)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x, y, width, 34, 7);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#ffe8f0";
+      ctx.font = "bold 11px system-ui";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(`BOSS 侵袭核心  阶段 ${phase}/${phaseCount}`, x + 10, y + 5);
+
+      ctx.fillStyle = "rgba(255, 93, 125, 0.24)";
+      ctx.fillRect(x + 10, y + 21, width - 20, 5);
+      ctx.fillStyle = "#ff5d7d";
+      ctx.fillRect(x + 10, y + 21, (width - 20) * clamp(boss.hp / boss.maxHp, 0, 1), 5);
+      if (boss.maxShield > 0) {
+        ctx.fillStyle = "rgba(111, 240, 255, 0.22)";
+        ctx.fillRect(x + 10, y + 28, width - 20, 3);
+        ctx.fillStyle = "#6ff0ff";
+        ctx.fillRect(x + 10, y + 28, (width - 20) * shieldRatio, 3);
+      }
       ctx.restore();
     }
 
@@ -1279,7 +1414,7 @@ const canvas = document.querySelector("#game");
       ctx.shadowBlur = 14;
       ctx.fillStyle = "#d7fbff";
       ctx.beginPath();
-      ctx.roundRect(bullet.x - 3, bullet.y - 14, 6, 20, 4);
+      ctx.roundRect(bullet.x - bullet.radius, bullet.y - 14, bullet.radius * 2, 20 + Math.max(0, bullet.power - 1) * 4, bullet.radius);
       ctx.fill();
       ctx.restore();
     }
@@ -1511,7 +1646,7 @@ const canvas = document.querySelector("#game");
           if (option === "timed" && settings.timed) readTimeLimit();
           syncSettingButtons();
           titleEl.textContent = "星际空袭";
-          messageEl.textContent = `已选择：${modeText()} / ${timeText()} / ${difficulties[settings.difficulty].label}难度。怪物每 30 秒升级。`;
+          messageEl.textContent = `已选择：${modeText()} / ${timeText()} / ${difficulties[settings.difficulty].label}难度。限时模式 18 秒一波，每 2 波 BOSS。`;
         });
       }
 
@@ -1520,7 +1655,7 @@ const canvas = document.querySelector("#game");
         settings.timed = true;
         syncSettingButtons();
         titleEl.textContent = "星际空袭";
-        messageEl.textContent = `已选择：${modeText()} / ${timeText()} / ${difficulties[settings.difficulty].label}难度。怪物每 30 秒升级。`;
+        messageEl.textContent = `已选择：${modeText()} / ${timeText()} / ${difficulties[settings.difficulty].label}难度。限时模式 18 秒一波，每 2 波 BOSS。`;
       });
     }
 
